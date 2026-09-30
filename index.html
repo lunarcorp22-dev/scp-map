@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCP:SL Live Map</title>
+    <style>
+        body { margin: 0; background-color: #1a1a1a; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 15px; left: 15px; background: rgba(0, 0, 0, 0.85); padding: 15px; border-radius: 8px; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
+        h2 { margin: 0 0 10px 0; font-size: 1.2rem; color: #f39c12; }
+        p { margin: 5px 0; font-size: 0.9rem; color: #ccc; }
+        .server-ip { background: #333; color: #fff; border: 1px solid #555; padding: 5px; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h2>Live Map Terminal</h2>
+        <!-- Твой IP и порт уже вписаны сюда -->
+        <input type="text" id="ipInput" class="server-ip" value="http://26.185.176.23:1234/map/" placeholder="API URL (напр. http://IP:PORT/map/)">
+        <p id="status">Статус: <span style="color: #e74c3c;">Отключено</span></p>
+        <p id="stats">Игроков: 0 | Комнат: 0</p>
+    </div>
+    
+    <canvas id="mapCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        const statsEl = document.getElementById('stats');
+        const ipInput = document.getElementById('ipInput');
+
+        let mapData = { Rooms: [], Players: [] };
+        let offsetX = 0, offsetY = 0, scale = 5;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            drawMap();
+        }
+        window.addEventListener('resize', resize);
+
+        async function fetchMapData() {
+            try {
+                const response = await fetch(ipInput.value);
+                if (response.ok) {
+                    mapData = await response.json();
+                    statusEl.innerHTML = 'Статус: <span style="color: #2ecc71;">Подключено</span>';
+                    statsEl.innerText = `Игроков: ${mapData.PlayersCount} | Комнат: ${mapData.Rooms.length}`;
+                    calculateBounds();
+                    drawMap();
+                } else {
+                    throw new Error('Server error');
+                }
+            } catch (err) {
+                statusEl.innerHTML = 'Статус: <span style="color: #e74c3c;">Ошибка подключения</span>';
+            }
+        }
+
+        function calculateBounds() {
+            if (!mapData.Rooms || mapData.Rooms.length === 0) return;
+            
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            mapData.Rooms.forEach(r => {
+                if (r.X < minX) minX = r.X;
+                if (r.X > maxX) maxX = r.X;
+                if (r.Z < minZ) minZ = r.Z;
+                if (r.Z > maxZ) maxZ = r.Z;
+            });
+
+            const mapWidth = maxX - minX;
+            const mapHeight = maxZ - minZ;
+            
+            scale = Math.min(canvas.width / (mapWidth + 50), canvas.height / (mapHeight + 50)) * 0.8;
+            offsetX = (canvas.width / 2) - ((minX + mapWidth / 2) * scale);
+            offsetY = (canvas.height / 2) - ((minZ + mapHeight / 2) * scale);
+        }
+
+        function drawMap() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!mapData.Rooms) return;
+
+            mapData.Rooms.forEach(room => {
+                const cx = (room.X * scale) + offsetX;
+                const cy = (room.Z * scale) + offsetY;
+
+                if (room.Zone.includes("Light")) ctx.fillStyle = "#f1c40f"; 
+                else if (room.Zone.includes("Heavy")) ctx.fillStyle = "#c0392b"; 
+                else if (room.Zone.includes("Entrance")) ctx.fillStyle = "#e67e22"; 
+                else if (room.Zone.includes("Surface")) ctx.fillStyle = "#7f8c8d"; 
+                else ctx.fillStyle = "#34495e";
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(room.Rotation * Math.PI / 180);
+                
+                const roomSize = 10 * scale;
+                ctx.fillRect(-roomSize/2, -roomSize/2, roomSize, roomSize);
+                ctx.strokeStyle = "#2c3e50";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(-roomSize/2, -roomSize/2, roomSize, roomSize);
+                ctx.restore();
+            });
+
+            if (!mapData.Players) return;
+
+            mapData.Players.forEach(player => {
+                const px = (player.X * scale) + offsetX;
+                const py = (player.Z * scale) + offsetY;
+
+                let color = "#ffffff";
+                const role = player.Role ? player.Role.toLowerCase() : "";
+                if (role.includes("classd")) color = "#e67e22";
+                else if (role.includes("scientist")) color = "#f1c40f";
+                else if (role.includes("scp")) color = "#e74c3c";
+                else if (role.includes("ntf") || role.includes("facility")) color = "#3498db";
+                else if (role.includes("chaos")) color = "#2ecc71";
+
+                ctx.beginPath();
+                ctx.arc(px, py, 4, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "#000";
+                ctx.stroke();
+
+                ctx.fillStyle = "white";
+                ctx.font = "12px sans-serif";
+                ctx.fillText(player.Nickname, px + 8, py + 4);
+            });
+        }
+
+        resize();
+        setInterval(fetchMapData, 1000);
+    </script>
+</body>
+</html>
